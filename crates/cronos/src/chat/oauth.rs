@@ -105,6 +105,7 @@ async fn run_callback_server(expected_state: &str) -> Result<String> {
 #[derive(serde::Deserialize)]
 struct TokenResponse {
     #[serde(default)]
+    #[allow(dead_code)]
     access_token: String,
     #[serde(default)]
     id_token: String,
