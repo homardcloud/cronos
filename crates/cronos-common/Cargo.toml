@@ -1,0 +1,20 @@
+[package]
+name = "cronos-common"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cronos-model = { path = "../cronos-model" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+directories = { workspace = true }
+chrono = { workspace = true }
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

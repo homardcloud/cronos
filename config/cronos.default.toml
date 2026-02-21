@@ -1,0 +1,31 @@
+[daemon]
+# socket_path = ""                  # default: $XDG_RUNTIME_DIR/cronos/cronos.sock
+# db_path = ""                      # default: $XDG_DATA_HOME/cronos/cronos.db
+log_level = "info"
+event_channel_size = 4096
+
+[daemon.dedup]
+window_ms = 1000
+
+[daemon.linker]
+temporal_window_ms = 300000         # 5 min
+min_edge_strength = 0.1
+
+[collectors.fs]
+enabled = true
+watch_paths = ["~/projects"]
+ignore_patterns = [
+    "*/node_modules/*",
+    "*/.git/objects/*",
+    "*/target/*",
+    "*/.cache/*",
+    "*.swp",
+    "*.tmp",
+]
+debounce_ms = 500
+
+[collectors.browser]
+enabled = false
+listen_port = 19280
+ignore_domains = []
+min_dwell_time_ms = 3000
