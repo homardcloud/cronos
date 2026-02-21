@@ -96,6 +96,12 @@ enum Commands {
         model: Option<String>,
     },
 
+    /// Log in with your ChatGPT account (OAuth)
+    Login,
+
+    /// Log out and remove stored credentials
+    Logout,
+
     /// Configuration subcommands
     Config {
         #[command(subcommand)]
@@ -136,6 +142,8 @@ async fn main() -> Result<()> {
             json,
         } => cmd_timeline(from, to, last, json).await,
         Commands::Chat { model } => chat::cmd_chat(model).await,
+        Commands::Login => chat::cmd_login().await,
+        Commands::Logout => chat::cmd_logout().await,
         Commands::Config { action } => match action {
             ConfigAction::Show => cmd_config_show(),
         },

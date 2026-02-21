@@ -7,6 +7,14 @@ mod tools;
 use cronos_common::{CronosConfig, CronosPaths};
 use std::path::PathBuf;
 
+pub async fn cmd_login() -> anyhow::Result<()> {
+    anyhow::bail!("not yet implemented")
+}
+
+pub async fn cmd_logout() -> anyhow::Result<()> {
+    anyhow::bail!("not yet implemented")
+}
+
 pub async fn cmd_chat(model_override: Option<String>) -> anyhow::Result<()> {
     let paths = CronosPaths::resolve()?;
     let config = CronosConfig::load(&paths.config_file)?;
