@@ -1,0 +1,13 @@
+[Unit]
+Description=Cronos Context Engine
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/cronos daemon
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target
