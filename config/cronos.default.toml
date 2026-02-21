@@ -15,12 +15,12 @@ min_edge_strength = 0.1
 enabled = true
 watch_paths = ["~/projects"]
 ignore_patterns = [
-    "*/node_modules/*",
-    "*/.git/objects/*",
-    "*/target/*",
-    "*/.cache/*",
-    "*.swp",
-    "*.tmp",
+    "**/node_modules/**",
+    "**/.git/objects/**",
+    "**/target/**",
+    "**/.cache/**",
+    "**/*.swp",
+    "**/*.tmp",
 ]
 debounce_ms = 500
 

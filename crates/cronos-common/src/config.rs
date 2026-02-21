@@ -81,12 +81,12 @@ fn default_true() -> bool { true }
 fn default_watch_paths() -> Vec<String> { vec!["~/projects".to_string()] }
 fn default_ignore_patterns() -> Vec<String> {
     vec![
-        "*/node_modules/*".to_string(),
-        "*/.git/objects/*".to_string(),
-        "*/target/*".to_string(),
-        "*/.cache/*".to_string(),
-        "*.swp".to_string(),
-        "*.tmp".to_string(),
+        "**/node_modules/**".to_string(),
+        "**/.git/objects/**".to_string(),
+        "**/target/**".to_string(),
+        "**/.cache/**".to_string(),
+        "**/*.swp".to_string(),
+        "**/*.tmp".to_string(),
     ]
 }
 fn default_debounce() -> u64 { 500 }
