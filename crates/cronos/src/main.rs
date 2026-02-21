@@ -1,3 +1,5 @@
+mod chat;
+
 use anyhow::{anyhow, Context, Result};
 use chrono::{NaiveDate, TimeZone, Utc};
 use clap::{Parser, Subcommand};
@@ -87,6 +89,13 @@ enum Commands {
         json: bool,
     },
 
+    /// Start an interactive AI chat session
+    Chat {
+        /// OpenAI model to use (overrides config)
+        #[arg(long)]
+        model: Option<String>,
+    },
+
     /// Configuration subcommands
     Config {
         #[command(subcommand)]
@@ -126,6 +135,7 @@ async fn main() -> Result<()> {
             last,
             json,
         } => cmd_timeline(from, to, last, json).await,
+        Commands::Chat { model } => chat::cmd_chat(model).await,
         Commands::Config { action } => match action {
             ConfigAction::Show => cmd_config_show(),
         },
