@@ -29,3 +29,7 @@ enabled = false
 listen_port = 19280
 ignore_domains = []
 min_dwell_time_ms = 3000
+
+[ai]
+# api_key = ""                     # or set OPENAI_API_KEY env var
+model = "gpt-4o"

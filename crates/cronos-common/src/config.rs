@@ -7,6 +7,8 @@ pub struct CronosConfig {
     pub daemon: DaemonConfig,
     #[serde(default)]
     pub collectors: CollectorsConfig,
+    #[serde(default)]
+    pub ai: AiConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +71,22 @@ pub struct BrowserCollectorConfig {
     pub ignore_domains: Vec<String>,
     #[serde(default = "default_dwell_time")]
     pub min_dwell_time_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiConfig {
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_ai_model")]
+    pub model: String,
+}
+
+fn default_ai_model() -> String { "gpt-4o".to_string() }
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self { api_key: String::new(), model: default_ai_model() }
+    }
 }
 
 // Default functions
@@ -134,6 +152,7 @@ impl CronosConfig {
         if let Ok(v) = std::env::var("CRONOS_LOG_LEVEL") { config.daemon.log_level = v; }
         if let Ok(v) = std::env::var("CRONOS_SOCKET_PATH") { config.daemon.socket_path = v; }
         if let Ok(v) = std::env::var("CRONOS_DB_PATH") { config.daemon.db_path = v; }
+        if let Ok(v) = std::env::var("OPENAI_API_KEY") { config.ai.api_key = v; }
         Ok(config)
     }
 }
