@@ -6,6 +6,7 @@ members = [
     "crates/cronos-proto",
     "crates/cronos-core",
     "crates/cronos",
+    "crates/collectors/cronos-collect-fs",
 ]
 
 [workspace.package]
