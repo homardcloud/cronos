@@ -1,5 +1,6 @@
 mod autostart;
 mod daemon_client;
+mod oauth;
 mod openai;
 mod repl;
 mod tools;
