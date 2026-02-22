@@ -12,8 +12,26 @@ use std::path::PathBuf;
 pub async fn cmd_login() -> anyhow::Result<()> {
     let paths = CronosPaths::resolve()?;
     std::fs::create_dir_all(&paths.config_dir)?;
-    let api_key = oauth::login().await?;
-    credentials::save_api_key(&paths.config_dir, &api_key)?;
+
+    let result = oauth::login().await?;
+
+    let creds = match result {
+        oauth::LoginResult::ApiKey(key) => credentials::StoredCredentials {
+            api_key: Some(key),
+            access_token: None,
+            refresh_token: None,
+        },
+        oauth::LoginResult::OAuthTokens {
+            access_token,
+            refresh_token,
+        } => credentials::StoredCredentials {
+            api_key: None,
+            access_token: Some(access_token),
+            refresh_token: Some(refresh_token),
+        },
+    };
+
+    credentials::save(&paths.config_dir, &creds)?;
     println!("Logged in successfully. Credentials saved.");
     Ok(())
 }

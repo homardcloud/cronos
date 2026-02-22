@@ -6,21 +6,17 @@ use tokio::net::TcpListener;
 
 const ISSUER: &str = "https://auth.openai.com";
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-const REDIRECT_URI: &str = "http://127.0.0.1:1455/auth/callback";
+const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const SCOPES: &str = "openid profile email offline_access";
 
 const CALLBACK_PORT: u16 = 1455;
 
-/// Generate a PKCE verifier (43 random chars) and its SHA256 base64url challenge.
+/// Generate a PKCE verifier (64 random bytes, base64url-encoded) and its
+/// SHA256 base64url challenge. Matches the Codex CLI implementation.
 fn generate_pkce() -> (String, String) {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
     let mut rng = rand::rng();
-    let verifier: String = (0..43)
-        .map(|_| {
-            let idx = rng.random_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect();
+    let bytes: [u8; 64] = rng.random();
+    let verifier = base64_url_encode(&bytes);
 
     let hash = Sha256::digest(verifier.as_bytes());
     let challenge = base64_url_encode(&hash);
@@ -40,16 +36,26 @@ fn generate_state() -> String {
     hex::encode(bytes)
 }
 
+/// Build the authorize URL, matching the exact parameter set from the Codex CLI.
 fn build_auth_url(state: &str, challenge: &str) -> String {
-    format!(
-        "{}/oauth/authorize?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}&code_challenge={}&code_challenge_method=S256",
-        ISSUER,
-        CLIENT_ID,
-        urlencoding::encode(REDIRECT_URI),
-        urlencoding::encode(SCOPES),
-        state,
-        challenge,
-    )
+    let params: &[(&str, &str)] = &[
+        ("response_type", "code"),
+        ("client_id", CLIENT_ID),
+        ("redirect_uri", REDIRECT_URI),
+        ("scope", SCOPES),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+        ("id_token_add_organizations", "true"),
+        ("codex_cli_simplified_flow", "true"),
+        ("state", state),
+        ("originator", "codex_cli_rs"),
+    ];
+    let qs: String = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{}/oauth/authorize?{}", ISSUER, qs)
 }
 
 /// Bind a local server and wait for the OAuth callback.
@@ -81,7 +87,8 @@ async fn run_callback_server(expected_state: &str) -> Result<String> {
         .split('&')
         .filter_map(|pair| {
             let (k, v) = pair.split_once('=')?;
-            Some((k.to_string(), v.to_string()))
+            let v = urlencoding::decode(v).unwrap_or(std::borrow::Cow::Borrowed(v));
+            Some((k.to_string(), v.into_owned()))
         })
         .collect();
 
@@ -102,27 +109,36 @@ async fn run_callback_server(expected_state: &str) -> Result<String> {
     Ok(code)
 }
 
+/// Tokens returned from the authorization code exchange.
+pub struct ExchangedTokens {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub id_token: String,
+}
+
 #[derive(serde::Deserialize)]
-struct TokenResponse {
+struct TokenResponseRaw {
     #[serde(default)]
-    #[allow(dead_code)]
     access_token: String,
+    #[serde(default)]
+    refresh_token: String,
     #[serde(default)]
     id_token: String,
 }
 
 /// Exchange the authorization code for tokens.
-async fn exchange_code(code: &str, verifier: &str) -> Result<TokenResponse> {
+async fn exchange_code(code: &str, verifier: &str) -> Result<ExchangedTokens> {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{}/oauth/token", ISSUER))
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("client_id", CLIENT_ID),
-            ("code", code),
-            ("redirect_uri", REDIRECT_URI),
-            ("code_verifier", verifier),
-        ])
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(format!(
+            "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}&code_verifier={}",
+            urlencoding::encode(code),
+            urlencoding::encode(REDIRECT_URI),
+            urlencoding::encode(CLIENT_ID),
+            urlencoding::encode(verifier),
+        ))
         .send()
         .await
         .context("sending token exchange request")?;
@@ -133,9 +149,47 @@ async fn exchange_code(code: &str, verifier: &str) -> Result<TokenResponse> {
         return Err(anyhow!("token exchange failed ({}): {}", status, body));
     }
 
-    resp.json::<TokenResponse>()
-        .await
-        .context("parsing token response")
+    let raw: TokenResponseRaw = resp.json().await.context("parsing token response")?;
+    Ok(ExchangedTokens {
+        access_token: raw.access_token,
+        refresh_token: raw.refresh_token,
+        id_token: raw.id_token,
+    })
+}
+
+/// Decode JWT payload and extract claims from `https://api.openai.com/auth`.
+fn jwt_auth_claims(jwt: &str) -> serde_json::Map<String, serde_json::Value> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+
+    let empty = serde_json::Map::new();
+    let parts: Vec<&str> = jwt.split('.').collect();
+    if parts.len() != 3 {
+        return empty;
+    }
+
+    // JWT base64url payload may need padding
+    let padded = match parts[1].len() % 4 {
+        2 => format!("{}==", parts[1]),
+        3 => format!("{}=", parts[1]),
+        _ => parts[1].to_string(),
+    };
+
+    let bytes = match URL_SAFE_NO_PAD.decode(&padded) {
+        Ok(b) => b,
+        Err(_) => return empty,
+    };
+
+    let value: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(_) => return empty,
+    };
+
+    value
+        .get("https://api.openai.com/auth")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default()
 }
 
 #[derive(serde::Deserialize)]
@@ -143,19 +197,20 @@ struct ApiKeyResponse {
     access_token: String,
 }
 
-/// Exchange the id_token for an OpenAI API key via RFC 8693 token exchange.
+/// Exchange the id_token for an OpenAI API key via token exchange.
 async fn obtain_api_key(id_token: &str) -> Result<String> {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{}/oauth/token", ISSUER))
-        .form(&[
-            ("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange"),
-            ("client_id", CLIENT_ID),
-            ("requested_token_type", "urn:ietf:params:oauth:token-type:access_token"),
-            ("subject_token", id_token),
-            ("subject_token_type", "urn:ietf:params:oauth:token-type:id_token"),
-            ("audience", "https://api.openai.com/v1"),
-        ])
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(format!(
+            "grant_type={}&client_id={}&requested_token={}&subject_token={}&subject_token_type={}",
+            urlencoding::encode("urn:ietf:params:oauth:grant-type:token-exchange"),
+            urlencoding::encode(CLIENT_ID),
+            urlencoding::encode("openai-api-key"),
+            urlencoding::encode(id_token),
+            urlencoding::encode("urn:ietf:params:oauth:token-type:id_token"),
+        ))
         .send()
         .await
         .context("sending API key exchange request")?;
@@ -174,9 +229,20 @@ async fn obtain_api_key(id_token: &str) -> Result<String> {
     Ok(parsed.access_token)
 }
 
+/// Result of the login flow — either an API key or OAuth tokens for direct use.
+pub enum LoginResult {
+    /// Full API key obtained (user has a platform org).
+    ApiKey(String),
+    /// No platform org — use access_token directly (ChatGPT Plus/Pro).
+    OAuthTokens {
+        access_token: String,
+        refresh_token: String,
+    },
+}
+
 /// Run the full OAuth PKCE login flow. Opens the browser, waits for callback,
-/// exchanges tokens, and returns the API key.
-pub async fn login() -> Result<String> {
+/// exchanges tokens, and attempts to obtain an API key.
+pub async fn login() -> Result<LoginResult> {
     let (verifier, challenge) = generate_pkce();
     let state = generate_state();
     let url = build_auth_url(&state, &challenge);
@@ -194,8 +260,32 @@ pub async fn login() -> Result<String> {
         return Err(anyhow!("no id_token received from token exchange"));
     }
 
-    println!("Obtaining API key...");
-    let api_key = obtain_api_key(&tokens.id_token).await?;
+    // Check if the id_token contains an organization_id
+    let claims = jwt_auth_claims(&tokens.id_token);
+    let has_org = claims
+        .get("organization_id")
+        .and_then(|v| v.as_str())
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
 
-    Ok(api_key)
+    if has_org {
+        println!("Obtaining API key...");
+        match obtain_api_key(&tokens.id_token).await {
+            Ok(api_key) => return Ok(LoginResult::ApiKey(api_key)),
+            Err(e) => {
+                eprintln!("Warning: API key exchange failed ({}), falling back to OAuth tokens.", e);
+            }
+        }
+    } else {
+        eprintln!(
+            "Note: Your account does not have an OpenAI API platform organization.\n\
+             Using OAuth access token directly (works with ChatGPT Plus/Pro)."
+        );
+    }
+
+    // Fall back to using the access_token directly (like Codex CLI does)
+    Ok(LoginResult::OAuthTokens {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+    })
 }
