@@ -13,7 +13,9 @@ pub async fn run_repl(auth: Auth, model: String, socket_path: PathBuf) -> Result
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
     let system_prompt = format!(
         "You are a personal developer assistant with access to the user's Cronos activity tracker. \
-         Cronos records file edits, project changes, and other developer activity on their local machine. \
+         Cronos tracks the user's app usage, window focus, and file changes. \
+         Use cronos_day_summary to see what they did on a given day, and cronos_sessions for detailed session breakdowns. \
+         Use cronos_recent for real-time file change events. \
          Use the provided tools to query the user's context and answer their questions. \
          Today's date and time is {now}. Answer concisely."
     );

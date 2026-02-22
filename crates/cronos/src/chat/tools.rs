@@ -98,6 +98,48 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 }
             }
         }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "cronos_sessions",
+                "description": "Get activity sessions for a time range. Sessions group consecutive app usage — shows which app, how long, window titles, and category (coding/communication/browsing/etc).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "from_ms": {
+                            "type": "integer",
+                            "description": "Start timestamp in ms since epoch"
+                        },
+                        "to_ms": {
+                            "type": "integer",
+                            "description": "End timestamp in ms since epoch"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Max sessions to return (default 50)"
+                        }
+                    },
+                    "required": ["from_ms", "to_ms"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "cronos_day_summary",
+                "description": "Get a structured summary of the user's activity for a specific date — total hours tracked, breakdown by category (coding, communication, browsing, etc) with apps and durations.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "date": {
+                            "type": "string",
+                            "description": "Date in YYYY-MM-DD format"
+                        }
+                    },
+                    "required": ["date"]
+                }
+            }
+        }),
     ]
 }
 
@@ -168,6 +210,33 @@ pub async fn dispatch_tool_call(
             )
         }
         "cronos_status" => Message::new(request_id, MessageKind::Status),
+        "cronos_sessions" => {
+            let from = args["from_ms"].as_i64().unwrap_or(0);
+            let to = args["to_ms"].as_i64().unwrap_or(0);
+            let limit = args["limit"].as_u64().unwrap_or(50) as u32;
+            Message::new(
+                request_id,
+                MessageKind::Query {
+                    query: QueryRequest {
+                        kind: QueryKind::Sessions { from, to, limit },
+                    },
+                },
+            )
+        }
+        "cronos_day_summary" => {
+            let date = args["date"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            Message::new(
+                request_id,
+                MessageKind::Query {
+                    query: QueryRequest {
+                        kind: QueryKind::DaySummary { date },
+                    },
+                },
+            )
+        }
         _ => bail!("unknown tool: {}", name),
     };
 
