@@ -1,15 +1,11 @@
 mod chat;
 
-use anyhow::{anyhow, Context, Result};
-use chrono::{NaiveDate, TimeZone, Utc};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use cronos_common::{CronosConfig, CronosPaths};
 use cronos_core::engine::Engine;
-use cronos_model::*;
-use cronos_proto::*;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::net::UnixStream;
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -19,100 +15,20 @@ use tokio::net::UnixStream;
 #[command(name = "cronos", about = "Developer activity tracker", version)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Run the daemon in the foreground
+    #[command(hide = true)]
     Daemon,
-
-    /// Generate default configuration file
-    Init,
-
-    /// Show daemon status
-    Status {
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Search or traverse the context graph
-    Query {
-        /// Full-text search query
-        text: Option<String>,
-
-        /// Find entities related to the given entity ID
-        #[arg(long)]
-        related: Option<String>,
-
-        /// Traversal depth for --related
-        #[arg(long, default_value = "2")]
-        depth: u8,
-
-        /// Maximum number of results
-        #[arg(long, default_value = "20")]
-        limit: u32,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Show recent events
-    Recent {
-        /// Maximum number of results
-        #[arg(long, default_value = "20")]
-        limit: u32,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Show events in a time range
-    Timeline {
-        /// Start date (YYYY-MM-DD or RFC 3339)
-        #[arg(long)]
-        from: Option<String>,
-
-        /// End date (YYYY-MM-DD or RFC 3339)
-        #[arg(long)]
-        to: Option<String>,
-
-        /// Duration to look back (e.g. "2h", "30m", "60s")
-        #[arg(long)]
-        last: Option<String>,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Start an interactive AI chat session
-    Chat {
-        /// OpenAI model to use (overrides config)
-        #[arg(long)]
-        model: Option<String>,
-    },
 
     /// Log in with your ChatGPT account (OAuth)
     Login,
 
     /// Log out and remove stored credentials
     Logout,
-
-    /// Configuration subcommands
-    Config {
-        #[command(subcommand)]
-        action: ConfigAction,
-    },
-}
-
-#[derive(Subcommand)]
-enum ConfigAction {
-    /// Print the resolved configuration
-    Show,
 }
 
 // ---------------------------------------------------------------------------
@@ -124,40 +40,24 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Daemon => cmd_daemon().await,
-        Commands::Init => cmd_init(),
-        Commands::Status { json } => cmd_status(json).await,
-        Commands::Query {
-            text,
-            related,
-            depth,
-            limit,
-            json,
-        } => cmd_query(text, related, depth, limit, json).await,
-        Commands::Recent { limit, json } => cmd_recent(limit, json).await,
-        Commands::Timeline {
-            from,
-            to,
-            last,
-            json,
-        } => cmd_timeline(from, to, last, json).await,
-        Commands::Chat { model } => {
-            if cronos_common::consent::is_first_run()? {
+        Some(Commands::Daemon) => cmd_daemon().await,
+        Some(Commands::Login) => chat::cmd_login().await,
+        Some(Commands::Logout) => chat::cmd_logout().await,
+        None => {
+            let paths = CronosPaths::resolve()?;
+            std::fs::create_dir_all(&paths.config_dir)?;
+            let first_run = cronos_common::consent::check_consent(&paths.config_dir)?;
+
+            if first_run {
                 if cronos_common::consent::prompt_openai_connect()? {
                     chat::cmd_login().await?;
                 }
                 if cronos_common::consent::prompt_desktop_install()? {
                     install_desktop_app()?;
                 }
-                cronos_common::consent::mark_setup_done()?;
             }
-            chat::cmd_chat(model).await
+            chat::cmd_chat(None).await
         }
-        Commands::Login => chat::cmd_login().await,
-        Commands::Logout => chat::cmd_logout().await,
-        Commands::Config { action } => match action {
-            ConfigAction::Show => cmd_config_show(),
-        },
     }
 }
 
@@ -171,18 +71,76 @@ fn install_desktop_app() -> Result<()> {
         println!("Desktop app source not found at {}. Skipping.", ui_dir.display());
         return Ok(());
     }
-    println!("Installing Cronos desktop app (this may take a few minutes)...");
-    let status = std::process::Command::new("cargo")
-        .args(["install", "--path"])
-        .arg(&ui_dir)
+
+    // Ensure cargo-tauri CLI is available
+    let has_tauri = std::process::Command::new("cargo")
+        .args(["tauri", "--version"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
-        .context("failed to run cargo install")?;
-    if status.success() {
-        println!("Desktop app installed successfully! Run `cronos-ui` to launch.");
-    } else {
-        println!("Desktop app installation failed. You can try again later with:");
-        println!("  cargo install --path {}", ui_dir.display());
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !has_tauri {
+        println!("Installing Tauri CLI...");
+        let status = std::process::Command::new("cargo")
+            .args(["install", "tauri-cli", "--locked"])
+            .status()
+            .context("failed to install tauri-cli")?;
+        if !status.success() {
+            println!("Failed to install Tauri CLI. Skipping desktop app.");
+            return Ok(());
+        }
     }
+
+    println!("Building Cronos desktop app (this may take a few minutes)...");
+    let status = std::process::Command::new("cargo")
+        .args(["tauri", "build", "--bundles", "app"])
+        .current_dir(&ui_dir)
+        .status()
+        .context("failed to run cargo tauri build")?;
+
+    if !status.success() {
+        println!("Desktop app build failed. You can try again later with:");
+        println!("  cd {} && cargo tauri build --bundles app", ui_dir.display());
+        return Ok(());
+    }
+
+    // Find the .app bundle in the workspace target directory
+    let workspace_dir = ui_dir.join("../..");
+    let app_bundle = workspace_dir.join("target/release/bundle/macos/Cronos.app");
+
+    if !app_bundle.exists() {
+        println!("Build succeeded but could not find Cronos.app bundle. Skipping install.");
+        return Ok(());
+    }
+
+    let dest = PathBuf::from("/Applications/Cronos.app");
+
+    // Remove old version if present
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest).context("removing old Cronos.app")?;
+    }
+
+    // Copy the .app bundle to /Applications
+    let status = std::process::Command::new("cp")
+        .args(["-R"])
+        .arg(&app_bundle)
+        .arg(&dest)
+        .status()
+        .context("copying Cronos.app to /Applications")?;
+
+    if status.success() {
+        println!("Cronos desktop app installed to /Applications/Cronos.app!");
+        // Open the app
+        let _ = std::process::Command::new("open")
+            .arg(&dest)
+            .status();
+    } else {
+        println!("Could not copy to /Applications. You can manually move:");
+        println!("  {} -> /Applications/", app_bundle.display());
+    }
+
     Ok(())
 }
 
@@ -226,180 +184,6 @@ async fn cmd_daemon() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Init command
-// ---------------------------------------------------------------------------
-
-fn cmd_init() -> Result<()> {
-    let paths = CronosPaths::resolve().context("resolving paths")?;
-
-    std::fs::create_dir_all(&paths.config_dir)
-        .context("creating config directory")?;
-
-    if paths.config_file.exists() {
-        println!("Config file already exists: {}", paths.config_file.display());
-        return Ok(());
-    }
-
-    let default_config = include_str!("../../../config/cronos.default.toml");
-    std::fs::write(&paths.config_file, default_config)
-        .context("writing config file")?;
-
-    println!("Created config: {}", paths.config_file.display());
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Status command
-// ---------------------------------------------------------------------------
-
-async fn cmd_status(json: bool) -> Result<()> {
-    let msg = Message::new(new_request_id(), MessageKind::Status);
-    let response = send_request(msg).await?;
-    print_response(&response, json);
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Query command
-// ---------------------------------------------------------------------------
-
-async fn cmd_query(
-    text: Option<String>,
-    related: Option<String>,
-    depth: u8,
-    limit: u32,
-    json: bool,
-) -> Result<()> {
-    let query_kind = if let Some(entity_id_str) = related {
-        let ulid = ulid::Ulid::from_string(&entity_id_str)
-            .map_err(|e| anyhow!("invalid entity ID '{}': {}", entity_id_str, e))?;
-        QueryKind::Related {
-            entity_id: EntityId(ulid),
-            depth,
-        }
-    } else if let Some(text) = text {
-        QueryKind::Search { text, limit }
-    } else {
-        return Err(anyhow!(
-            "provide a search query or --related <id>"
-        ));
-    };
-
-    let msg = Message::new(
-        new_request_id(),
-        MessageKind::Query {
-            query: QueryRequest { kind: query_kind },
-        },
-    );
-    let response = send_request(msg).await?;
-    print_response(&response, json);
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Recent command
-// ---------------------------------------------------------------------------
-
-async fn cmd_recent(limit: u32, json: bool) -> Result<()> {
-    let msg = Message::new(
-        new_request_id(),
-        MessageKind::Query {
-            query: QueryRequest {
-                kind: QueryKind::Recent { limit },
-            },
-        },
-    );
-    let response = send_request(msg).await?;
-    print_response(&response, json);
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Timeline command
-// ---------------------------------------------------------------------------
-
-async fn cmd_timeline(
-    from: Option<String>,
-    to: Option<String>,
-    last: Option<String>,
-    json: bool,
-) -> Result<()> {
-    let (from_ts, to_ts) = if let Some(duration_str) = last {
-        let duration_ms = parse_duration_ms(&duration_str)?;
-        let now = cronos_common::now_ms();
-        (now - duration_ms, now)
-    } else {
-        let from_ts = from
-            .as_deref()
-            .map(parse_timestamp)
-            .transpose()?
-            .unwrap_or(0);
-        let to_ts = to
-            .as_deref()
-            .map(parse_timestamp)
-            .transpose()?
-            .unwrap_or_else(cronos_common::now_ms);
-        (from_ts, to_ts)
-    };
-
-    let msg = Message::new(
-        new_request_id(),
-        MessageKind::Query {
-            query: QueryRequest {
-                kind: QueryKind::Timeline {
-                    from: from_ts,
-                    to: to_ts,
-                },
-            },
-        },
-    );
-    let response = send_request(msg).await?;
-    print_response(&response, json);
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Config show command
-// ---------------------------------------------------------------------------
-
-fn cmd_config_show() -> Result<()> {
-    let paths = CronosPaths::resolve().context("resolving paths")?;
-    let config = CronosConfig::load(&paths.config_file).context("loading config")?;
-    let output = toml::to_string_pretty(&config).context("serializing config")?;
-    println!("{}", output);
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: IPC client
-// ---------------------------------------------------------------------------
-
-async fn connect() -> Result<UnixStream> {
-    let paths = CronosPaths::resolve().context("resolving paths")?;
-    let config = CronosConfig::load(&paths.config_file).context("loading config")?;
-    let socket_path = resolve_socket_path(&config, &paths);
-
-    UnixStream::connect(&socket_path)
-        .await
-        .with_context(|| format!(
-            "cannot connect to daemon at {}. Is it running?",
-            socket_path.display()
-        ))
-}
-
-async fn send_request(msg: Message) -> Result<Message> {
-    let stream = connect().await?;
-    let (mut reader, mut writer) = stream.into_split();
-    write_frame(&mut writer, &msg).await.context("sending request")?;
-    let response = read_frame(&mut reader).await.context("reading response")?;
-    Ok(response)
-}
-
-fn new_request_id() -> String {
-    ulid::Ulid::new().to_string()
-}
-
-// ---------------------------------------------------------------------------
 // Helpers: path resolution
 // ---------------------------------------------------------------------------
 
@@ -417,191 +201,4 @@ fn resolve_socket_path(config: &CronosConfig, paths: &CronosPaths) -> PathBuf {
     } else {
         PathBuf::from(&config.daemon.socket_path)
     }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: parsing
-// ---------------------------------------------------------------------------
-
-/// Parse a human-friendly duration string like "2h", "30m", "60s" into
-/// milliseconds.
-fn parse_duration_ms(s: &str) -> Result<i64> {
-    let s = s.trim();
-    if s.is_empty() {
-        return Err(anyhow!("empty duration string"));
-    }
-
-    let (num_part, unit) = s.split_at(s.len() - 1);
-    let value: i64 = num_part
-        .parse()
-        .with_context(|| format!("invalid number in duration '{}'", s))?;
-
-    let multiplier: i64 = match unit {
-        "s" => 1_000,
-        "m" => 60_000,
-        "h" => 3_600_000,
-        "d" => 86_400_000,
-        _ => return Err(anyhow!("unknown duration unit '{}' (use s, m, h, d)", unit)),
-    };
-
-    Ok(value * multiplier)
-}
-
-/// Parse a timestamp string. Accepts YYYY-MM-DD or RFC 3339 format.
-fn parse_timestamp(s: &str) -> Result<i64> {
-    // Try RFC 3339 first (e.g. "2026-02-21T10:00:00Z")
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Ok(dt.timestamp_millis());
-    }
-
-    // Try YYYY-MM-DD
-    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        let dt = Utc
-            .from_utc_datetime(&date.and_hms_opt(0, 0, 0).unwrap());
-        return Ok(dt.timestamp_millis());
-    }
-
-    Err(anyhow!(
-        "cannot parse '{}' as a date (expected YYYY-MM-DD or RFC 3339)",
-        s
-    ))
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: output formatting
-// ---------------------------------------------------------------------------
-
-fn print_response(msg: &Message, json: bool) {
-    if json {
-        match serde_json::to_string_pretty(msg) {
-            Ok(s) => println!("{}", s),
-            Err(e) => eprintln!("error serializing response: {}", e),
-        }
-        return;
-    }
-
-    match &msg.kind {
-        MessageKind::StatusResult { info } => {
-            println!("Cronos Daemon Status");
-            println!("  Uptime:      {}",  format_uptime(info.uptime_secs));
-            println!("  Entities:    {}",  info.entity_count);
-            println!("  Edges:       {}",  info.edge_count);
-            println!("  Events:      {}",  info.event_count);
-            println!("  Collectors:  {}",  info.connected_collectors);
-        }
-        MessageKind::QueryResult { response } => {
-            print_query_response(response);
-        }
-        MessageKind::Ack { request_id } => {
-            println!("OK ({})", request_id);
-        }
-        MessageKind::Error {
-            code, message, ..
-        } => {
-            eprintln!("Error [{:?}]: {}", code, message);
-        }
-        MessageKind::CollectorList { collectors } => {
-            if collectors.is_empty() {
-                println!("No collectors connected.");
-            } else {
-                for c in collectors {
-                    println!(
-                        "  {} ({:?}) - events: {}, connected: {}",
-                        c.name, c.source, c.events_sent, c.connected
-                    );
-                }
-            }
-        }
-        other => {
-            println!("{:?}", other);
-        }
-    }
-}
-
-fn print_query_response(response: &QueryResponse) {
-    if response.entities.is_empty()
-        && response.events.is_empty()
-        && response.edges.is_empty()
-        && response.sessions.is_empty()
-    {
-        println!("No results.");
-        return;
-    }
-
-    if !response.entities.is_empty() {
-        println!("Entities ({}):", response.entities.len());
-        for entity in &response.entities {
-            println!(
-                "  [{}] {} - {} (seen: {} .. {})",
-                entity.kind,
-                entity.id,
-                entity.name,
-                format_timestamp(entity.first_seen),
-                format_timestamp(entity.last_seen),
-            );
-        }
-    }
-
-    if !response.events.is_empty() {
-        println!("Events ({}):", response.events.len());
-        for event in &response.events {
-            println!(
-                "  {} {:?}/{:?} on {} ({})",
-                format_timestamp(event.timestamp),
-                event.source,
-                event.kind,
-                event.subject.identity,
-                event.id,
-            );
-        }
-    }
-
-    if !response.edges.is_empty() {
-        println!("Edges ({}):", response.edges.len());
-        for edge in &response.edges {
-            println!(
-                "  {} -> {} [{:?}] strength={:.2}",
-                edge.from, edge.to, edge.relation, edge.strength,
-            );
-        }
-    }
-
-    if !response.sessions.is_empty() {
-        println!("Sessions ({}):", response.sessions.len());
-        for session in &response.sessions {
-            let titles = if session.window_titles.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", session.window_titles.join(", "))
-            };
-            println!(
-                "  {} - {} ({}) {}s, {} events{}",
-                format_timestamp(session.start_time),
-                session.app_name,
-                session.category,
-                session.duration_secs,
-                session.event_count,
-                titles,
-            );
-        }
-    }
-}
-
-fn format_uptime(secs: u64) -> String {
-    let hours = secs / 3600;
-    let mins = (secs % 3600) / 60;
-    let s = secs % 60;
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, mins, s)
-    } else if mins > 0 {
-        format!("{}m {}s", mins, s)
-    } else {
-        format!("{}s", s)
-    }
-}
-
-fn format_timestamp(ms: Timestamp) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| format!("{}ms", ms))
 }
