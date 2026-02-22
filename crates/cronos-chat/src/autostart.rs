@@ -19,7 +19,17 @@ pub async fn ensure_daemon(socket_path: &Path) -> Result<()> {
     eprintln!("  Starting Cronos daemon in background...");
 
     let exe = std::env::current_exe().context("locating cronos binary")?;
-    Command::new(&exe)
+    // Look for the `cronos` binary in the same directory (the current exe
+    // may be `cronos-ui` or another consumer of this library).
+    let dir = exe.parent().context("locating binary directory")?;
+    let cronos_bin = dir.join("cronos");
+    let daemon_bin = if cronos_bin.exists() {
+        cronos_bin
+    } else {
+        // Fallback: assume current exe handles `daemon` subcommand
+        exe
+    };
+    Command::new(&daemon_bin)
         .arg("daemon")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
