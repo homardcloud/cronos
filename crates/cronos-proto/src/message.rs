@@ -22,10 +22,14 @@ pub enum MessageKind {
     },
     Heartbeat,
 
-    // CLI -> Core
+    // CLI/UI -> Core
     Query { query: QueryRequest },
     Status,
     ListCollectors,
+    SetTrackingPaused { paused: bool },
+
+    // Core -> CLI/UI
+    TrackingStatus { paused: bool },
 
     // Core -> Collector/CLI
     Ack { request_id: String },

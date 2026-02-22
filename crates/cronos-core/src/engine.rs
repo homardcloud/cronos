@@ -7,6 +7,7 @@ use cronos_model::*;
 use cronos_proto::*;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -17,6 +18,7 @@ pub struct Engine {
     linker: Linker,
     start_time: Instant,
     collectors: Mutex<HashMap<String, CollectorInfo>>,
+    tracking_paused: AtomicBool,
 }
 
 impl Engine {
@@ -42,7 +44,16 @@ impl Engine {
             linker: Linker::new(config.linker.temporal_window_ms),
             start_time: Instant::now(),
             collectors: Mutex::new(HashMap::new()),
+            tracking_paused: AtomicBool::new(false),
         })
+    }
+
+    pub fn is_tracking_paused(&self) -> bool {
+        self.tracking_paused.load(Ordering::Relaxed)
+    }
+
+    pub fn set_tracking_paused(&self, paused: bool) {
+        self.tracking_paused.store(paused, Ordering::Relaxed);
     }
 
     pub fn handle_message(&self, msg: Message) -> Message {
@@ -58,11 +69,19 @@ impl Engine {
             MessageKind::Query { query } => self.handle_query(request_id, query),
             MessageKind::Status => self.handle_status(request_id),
             MessageKind::ListCollectors => self.handle_list_collectors(request_id),
+            MessageKind::SetTrackingPaused { paused } => {
+                self.set_tracking_paused(paused);
+                tracing::info!(paused, "tracking paused state changed");
+                Message::new(request_id, MessageKind::TrackingStatus { paused })
+            }
             _ => Message::error(request_id, ErrorCode::BadRequest, "unexpected message type"),
         }
     }
 
     fn handle_emit_event(&self, request_id: String, event: Event) -> Message {
+        if self.is_tracking_paused() {
+            return Message::ack(request_id);
+        }
         let processed = {
             let mut ingest = self.ingest.lock().unwrap();
             ingest.process(event)
