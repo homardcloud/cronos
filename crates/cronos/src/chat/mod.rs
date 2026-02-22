@@ -87,6 +87,7 @@ pub async fn cmd_chat(model_override: Option<String>) -> anyhow::Result<()> {
 
     autostart::ensure_daemon(&socket_path).await?;
     autostart::spawn_collector_if_absent();
+    autostart::spawn_appmon_if_absent();
 
     repl::run_repl(auth, model, socket_path).await
 }

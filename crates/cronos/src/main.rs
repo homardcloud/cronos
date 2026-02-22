@@ -168,6 +168,13 @@ async fn cmd_daemon() -> Result<()> {
     let engine = Engine::open(&db_path, &config.daemon).context("opening engine")?;
     let engine = Arc::new(engine);
 
+    // Spawn background session aggregator
+    cronos_core::aggregator::spawn_aggregator(
+        Arc::clone(&engine),
+        config.daemon.aggregator.interval_secs,
+        config.daemon.aggregator.session_gap_ms,
+    );
+
     let engine_ref = Arc::clone(&engine);
     let server_handle = tokio::spawn(async move {
         cronos_core::server::run(engine_ref, &socket_path).await

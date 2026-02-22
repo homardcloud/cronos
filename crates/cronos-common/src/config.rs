@@ -25,6 +25,8 @@ pub struct DaemonConfig {
     pub dedup: DedupConfig,
     #[serde(default)]
     pub linker: LinkerConfig,
+    #[serde(default)]
+    pub aggregator: AggregatorConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,12 +43,30 @@ pub struct LinkerConfig {
     pub min_edge_strength: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggregatorConfig {
+    #[serde(default = "default_aggregator_interval")]
+    pub interval_secs: u64,
+    #[serde(default = "default_session_gap")]
+    pub session_gap_ms: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CollectorsConfig {
     #[serde(default)]
     pub fs: FsCollectorConfig,
     #[serde(default)]
     pub browser: BrowserCollectorConfig,
+    #[serde(default)]
+    pub appmon: AppMonitorConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppMonitorConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +130,9 @@ fn default_ignore_patterns() -> Vec<String> {
 fn default_debounce() -> u64 { 500 }
 fn default_browser_port() -> u16 { 19280 }
 fn default_dwell_time() -> u64 { 3000 }
+fn default_poll_interval() -> u64 { 3000 }
+fn default_aggregator_interval() -> u64 { 300 }
+fn default_session_gap() -> u64 { 30_000 }
 
 // Default impls for config structs with non-trivial defaults
 impl Default for DaemonConfig {
@@ -118,6 +141,7 @@ impl Default for DaemonConfig {
             socket_path: String::new(), db_path: String::new(),
             log_level: default_log_level(), event_channel_size: default_channel_size(),
             dedup: DedupConfig::default(), linker: LinkerConfig::default(),
+            aggregator: AggregatorConfig::default(),
         }
     }
 }
@@ -137,6 +161,16 @@ impl Default for FsCollectorConfig {
 impl Default for BrowserCollectorConfig {
     fn default() -> Self {
         Self { enabled: false, listen_port: default_browser_port(), ignore_domains: Vec::new(), min_dwell_time_ms: default_dwell_time() }
+    }
+}
+impl Default for AppMonitorConfig {
+    fn default() -> Self {
+        Self { enabled: default_true(), poll_interval_ms: default_poll_interval() }
+    }
+}
+impl Default for AggregatorConfig {
+    fn default() -> Self {
+        Self { interval_secs: default_aggregator_interval(), session_gap_ms: default_session_gap() }
     }
 }
 

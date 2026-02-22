@@ -41,16 +41,25 @@ pub async fn ensure_daemon(socket_path: &Path) -> Result<()> {
 
 /// Attempt to spawn the filesystem collector if the binary exists alongside cronos.
 pub fn spawn_collector_if_absent() {
+    spawn_binary_if_present("cronos-collect-fs");
+}
+
+/// Attempt to spawn the app monitor collector if the binary exists alongside cronos.
+pub fn spawn_appmon_if_absent() {
+    spawn_binary_if_present("cronos-collect-appmon");
+}
+
+fn spawn_binary_if_present(name: &str) {
     let Ok(exe) = std::env::current_exe() else { return };
     let Some(dir) = exe.parent() else { return };
-    let collector = dir.join("cronos-collect-fs");
+    let binary = dir.join(name);
 
-    if !collector.exists() {
+    if !binary.exists() {
         return;
     }
 
     // Fire-and-forget
-    let _ = Command::new(&collector)
+    let _ = Command::new(&binary)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
