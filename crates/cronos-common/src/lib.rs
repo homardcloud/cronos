@@ -1,4 +1,5 @@
 pub mod config;
+pub mod consent;
 pub mod error;
 pub mod paths;
 

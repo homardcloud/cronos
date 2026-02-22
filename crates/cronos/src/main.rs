@@ -141,13 +141,49 @@ async fn main() -> Result<()> {
             last,
             json,
         } => cmd_timeline(from, to, last, json).await,
-        Commands::Chat { model } => chat::cmd_chat(model).await,
+        Commands::Chat { model } => {
+            if cronos_common::consent::is_first_run()? {
+                if cronos_common::consent::prompt_openai_connect()? {
+                    chat::cmd_login().await?;
+                }
+                if cronos_common::consent::prompt_desktop_install()? {
+                    install_desktop_app()?;
+                }
+                cronos_common::consent::mark_setup_done()?;
+            }
+            chat::cmd_chat(model).await
+        }
         Commands::Login => chat::cmd_login().await,
         Commands::Logout => chat::cmd_logout().await,
         Commands::Config { action } => match action {
             ConfigAction::Show => cmd_config_show(),
         },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Desktop app installation
+// ---------------------------------------------------------------------------
+
+fn install_desktop_app() -> Result<()> {
+    let ui_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../cronos-ui");
+    if !ui_dir.join("Cargo.toml").exists() {
+        println!("Desktop app source not found at {}. Skipping.", ui_dir.display());
+        return Ok(());
+    }
+    println!("Installing Cronos desktop app (this may take a few minutes)...");
+    let status = std::process::Command::new("cargo")
+        .args(["install", "--path"])
+        .arg(&ui_dir)
+        .status()
+        .context("failed to run cargo install")?;
+    if status.success() {
+        println!("Desktop app installed successfully! Run `cronos-ui` to launch.");
+    } else {
+        println!("Desktop app installation failed. You can try again later with:");
+        println!("  cargo install --path {}", ui_dir.display());
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
