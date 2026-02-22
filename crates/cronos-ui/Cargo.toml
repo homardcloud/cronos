@@ -1,0 +1,23 @@
+[package]
+name = "cronos-ui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cronos-ui"
+path = "src/main.rs"
+
+[dependencies]
+cronos-chat = { path = "../cronos-chat" }
+cronos-common = { path = "../cronos-common" }
+cronos-proto = { path = "../cronos-proto" }
+cronos-model = { path = "../cronos-model" }
+tauri = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+
+[build-dependencies]
+tauri-build = { workspace = true }

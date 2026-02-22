@@ -1,0 +1,19 @@
+{
+  "productName": "Cronos",
+  "version": "0.1.0",
+  "identifier": "dev.cronos.ui",
+  "build": {
+    "frontendDist": "frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Cronos",
+        "width": 420,
+        "height": 650,
+        "resizable": true
+      }
+    ]
+  }
+}
