@@ -483,7 +483,11 @@ fn print_response(msg: &Message, json: bool) {
 }
 
 fn print_query_response(response: &QueryResponse) {
-    if response.entities.is_empty() && response.events.is_empty() && response.edges.is_empty() {
+    if response.entities.is_empty()
+        && response.events.is_empty()
+        && response.edges.is_empty()
+        && response.sessions.is_empty()
+    {
         println!("No results.");
         return;
     }
@@ -522,6 +526,26 @@ fn print_query_response(response: &QueryResponse) {
             println!(
                 "  {} -> {} [{:?}] strength={:.2}",
                 edge.from, edge.to, edge.relation, edge.strength,
+            );
+        }
+    }
+
+    if !response.sessions.is_empty() {
+        println!("Sessions ({}):", response.sessions.len());
+        for session in &response.sessions {
+            let titles = if session.window_titles.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", session.window_titles.join(", "))
+            };
+            println!(
+                "  {} - {} ({}) {}s, {} events{}",
+                format_timestamp(session.start_time),
+                session.app_name,
+                session.category,
+                session.duration_secs,
+                session.event_count,
+                titles,
             );
         }
     }
