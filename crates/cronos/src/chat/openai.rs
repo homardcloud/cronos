@@ -219,13 +219,17 @@ fn tools_to_responses_format(tools: &[serde_json::Value]) -> Vec<serde_json::Val
 }
 
 /// Parse a Responses API SSE stream and extract the assistant's reply.
+///
+/// The stream emits many event types. We use `response.completed` as the
+/// primary source of truth since it contains the full response object with
+/// all output items (text, function calls, etc.) fully populated.
 async fn parse_responses_stream(resp: reqwest::Response) -> Result<ChatMessage> {
     let text = resp.text().await.context("reading response body")?;
 
     let mut output_text = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
 
-    // Parse SSE events
+    // Parse SSE events — look for the response.completed event
     for line in text.lines() {
         let line = line.trim();
         if !line.starts_with("data: ") {
@@ -243,51 +247,15 @@ async fn parse_responses_stream(resp: reqwest::Response) -> Result<ChatMessage> 
 
         let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-        match event_type {
-            "response.output_text.done" => {
-                if let Some(t) = event.get("text").and_then(|v| v.as_str()) {
-                    output_text.push_str(t);
-                }
+        if event_type == "response.completed" {
+            if let Some(response_obj) = event.get("response") {
+                extract_from_response_object(response_obj, &mut output_text, &mut tool_calls);
             }
-            "response.function_call_arguments.done" => {
-                let call_id = event
-                    .get("call_id")
-                    .or_else(|| event.get("item_id"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let name = event
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let arguments = event
-                    .get("arguments")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("{}")
-                    .to_string();
-
-                tool_calls.push(ToolCall {
-                    id: call_id,
-                    kind: "function".to_string(),
-                    function: FunctionCall { name, arguments },
-                });
-            }
-            // Also handle the completed response object
-            "response.completed" | "response.done" => {
-                if let Some(response_obj) = event.get("response") {
-                    extract_from_response_object(
-                        response_obj,
-                        &mut output_text,
-                        &mut tool_calls,
-                    );
-                }
-            }
-            _ => {}
+            break;
         }
     }
 
-    // If we didn't get any streaming events, try parsing as a single JSON response
+    // Fallback: if no response.completed event, try parsing as a single JSON object
     if output_text.is_empty() && tool_calls.is_empty() {
         if let Ok(response_obj) = serde_json::from_str::<serde_json::Value>(&text) {
             extract_from_response_object(&response_obj, &mut output_text, &mut tool_calls);
