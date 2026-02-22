@@ -141,6 +141,7 @@ pub enum CollectorSource {
     Browser,
     Git,
     Terminal,
+    AppMonitor,
     Custom(String),
 }
 
@@ -156,6 +157,7 @@ pub enum EventKind {
     CommitCreated,
     BranchChanged,
     CommandExecuted,
+    AppFocused,
     Custom(String),
 }
 
