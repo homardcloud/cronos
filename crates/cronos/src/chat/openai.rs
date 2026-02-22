@@ -162,37 +162,26 @@ fn messages_to_responses_input(
                 }
             }
             "assistant" => {
-                if let Some(ref tool_calls) = msg.tool_calls {
-                    // Assistant with tool calls
-                    let mut content = Vec::new();
-                    if let Some(ref text) = msg.content {
-                        if !text.is_empty() {
-                            content.push(serde_json::json!({
-                                "type": "output_text",
-                                "text": text,
-                            }));
-                        }
+                // Text output goes in a message
+                if let Some(ref text) = msg.content {
+                    if !text.is_empty() {
+                        input.push(serde_json::json!({
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{ "type": "output_text", "text": text }],
+                        }));
                     }
+                }
+                // Tool calls are top-level items, not nested in message content
+                if let Some(ref tool_calls) = msg.tool_calls {
                     for tc in tool_calls {
-                        content.push(serde_json::json!({
+                        input.push(serde_json::json!({
                             "type": "function_call",
-                            "id": tc.id,
                             "call_id": tc.id,
                             "name": tc.function.name,
                             "arguments": tc.function.arguments,
                         }));
                     }
-                    input.push(serde_json::json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": content,
-                    }));
-                } else if let Some(ref text) = msg.content {
-                    input.push(serde_json::json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{ "type": "output_text", "text": text }],
-                    }));
                 }
             }
             "tool" => {
