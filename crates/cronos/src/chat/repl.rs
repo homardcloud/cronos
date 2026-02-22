@@ -3,10 +3,10 @@ use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use std::path::PathBuf;
 
-use super::openai::{self, ChatMessage};
+use super::openai::{self, Auth, ChatMessage};
 use super::tools;
 
-pub async fn run_repl(api_key: String, model: String, socket_path: PathBuf) -> Result<()> {
+pub async fn run_repl(auth: Auth, model: String, socket_path: PathBuf) -> Result<()> {
     let client = reqwest::Client::new();
     let tool_defs = tools::tool_definitions();
 
@@ -43,7 +43,7 @@ pub async fn run_repl(api_key: String, model: String, socket_path: PathBuf) -> R
 
         // Agentic tool-call loop
         loop {
-            let reply = openai::chat_completion(&client, &api_key, &model, &history, &tool_defs)
+            let reply = openai::chat_completion(&client, &auth, &model, &history, &tool_defs)
                 .await?;
 
             if let Some(ref tool_calls) = reply.tool_calls {

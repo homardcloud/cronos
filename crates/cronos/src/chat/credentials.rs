@@ -14,6 +14,9 @@ pub struct StoredCredentials {
     /// OAuth refresh_token for renewing the access_token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
+    /// ChatGPT account ID (required header for ChatGPT backend API).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chatgpt_account_id: Option<String>,
 }
 
 pub fn save(config_dir: &Path, creds: &StoredCredentials) -> Result<()> {
@@ -44,26 +47,6 @@ pub fn load(config_dir: &Path) -> Result<Option<StoredCredentials>> {
     Ok(Some(creds))
 }
 
-/// Return the best available API key/token from stored credentials.
-pub fn load_api_key(config_dir: &Path) -> Result<Option<String>> {
-    match load(config_dir)? {
-        Some(creds) => {
-            // Prefer api_key, fall back to access_token
-            if let Some(ref key) = creds.api_key {
-                if !key.is_empty() {
-                    return Ok(Some(key.clone()));
-                }
-            }
-            if let Some(ref token) = creds.access_token {
-                if !token.is_empty() {
-                    return Ok(Some(token.clone()));
-                }
-            }
-            Ok(None)
-        }
-        None => Ok(None),
-    }
-}
 
 pub fn remove_credentials(config_dir: &Path) -> Result<()> {
     let path = config_dir.join(AUTH_FILE);

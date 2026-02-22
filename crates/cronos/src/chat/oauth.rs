@@ -237,6 +237,7 @@ pub enum LoginResult {
     OAuthTokens {
         access_token: String,
         refresh_token: String,
+        chatgpt_account_id: String,
     },
 }
 
@@ -283,9 +284,24 @@ pub async fn login() -> Result<LoginResult> {
         );
     }
 
+    // Extract chatgpt_account_id from JWT claims
+    let account_id = claims
+        .get("chatgpt_account_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    if account_id.is_empty() {
+        return Err(anyhow!(
+            "Could not extract chatgpt_account_id from token.\n\
+             Your account may not be eligible. Try visiting https://platform.openai.com first."
+        ));
+    }
+
     // Fall back to using the access_token directly (like Codex CLI does)
     Ok(LoginResult::OAuthTokens {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
+        chatgpt_account_id: account_id,
     })
 }

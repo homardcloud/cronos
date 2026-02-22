@@ -20,14 +20,17 @@ pub async fn cmd_login() -> anyhow::Result<()> {
             api_key: Some(key),
             access_token: None,
             refresh_token: None,
+            chatgpt_account_id: None,
         },
         oauth::LoginResult::OAuthTokens {
             access_token,
             refresh_token,
+            chatgpt_account_id,
         } => credentials::StoredCredentials {
             api_key: None,
             access_token: Some(access_token),
             refresh_token: Some(refresh_token),
+            chatgpt_account_id: Some(chatgpt_account_id),
         },
     };
 
@@ -47,13 +50,19 @@ pub async fn cmd_chat(model_override: Option<String>) -> anyhow::Result<()> {
     let paths = CronosPaths::resolve()?;
     let config = CronosConfig::load(&paths.config_file)?;
 
-    // API key resolution order:
-    // 1. OPENAI_API_KEY env var / config.ai.api_key (already resolved by CronosConfig)
-    // 2. Stored OAuth credentials from `cronos login`
-    let api_key = if !config.ai.api_key.is_empty() {
-        config.ai.api_key.clone()
-    } else if let Some(stored) = credentials::load_api_key(&paths.config_dir)? {
-        stored
+    // Resolve auth: either a standard API key or ChatGPT OAuth tokens
+    let auth = if !config.ai.api_key.is_empty() {
+        openai::Auth::ApiKey(config.ai.api_key.clone())
+    } else if let Some(creds) = credentials::load(&paths.config_dir)? {
+        if let Some(ref key) = creds.api_key {
+            if !key.is_empty() {
+                openai::Auth::ApiKey(key.clone())
+            } else {
+                build_chatgpt_auth(&creds)?
+            }
+        } else {
+            build_chatgpt_auth(&creds)?
+        }
     } else {
         anyhow::bail!(
             "No OpenAI API key found.\n\
@@ -62,7 +71,14 @@ pub async fn cmd_chat(model_override: Option<String>) -> anyhow::Result<()> {
         );
     };
 
-    let model = model_override.unwrap_or(config.ai.model.clone());
+    // For ChatGPT OAuth, default to a supported Codex model instead of config default
+    let model = model_override.unwrap_or_else(|| {
+        if matches!(auth, openai::Auth::ChatGpt { .. }) && config.ai.model == "gpt-4o" {
+            "gpt-5-codex-mini".to_string()
+        } else {
+            config.ai.model.clone()
+        }
+    });
     let socket_path = if config.daemon.socket_path.is_empty() {
         paths.socket_file.clone()
     } else {
@@ -72,5 +88,22 @@ pub async fn cmd_chat(model_override: Option<String>) -> anyhow::Result<()> {
     autostart::ensure_daemon(&socket_path).await?;
     autostart::spawn_collector_if_absent();
 
-    repl::run_repl(api_key, model, socket_path).await
+    repl::run_repl(auth, model, socket_path).await
+}
+
+fn build_chatgpt_auth(creds: &credentials::StoredCredentials) -> anyhow::Result<openai::Auth> {
+    let token = creds
+        .access_token
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("No access token in stored credentials. Run `cronos login`."))?;
+    let account_id = creds
+        .chatgpt_account_id
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("No ChatGPT account ID in stored credentials. Run `cronos login` again."))?;
+    Ok(openai::Auth::ChatGpt {
+        access_token: token.clone(),
+        account_id: account_id.clone(),
+    })
 }
