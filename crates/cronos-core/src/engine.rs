@@ -123,6 +123,7 @@ impl Engine {
                         entities,
                         edges: vec![],
                         events: vec![],
+                        sessions: vec![],
                     }
                 })
             }
@@ -137,6 +138,7 @@ impl Engine {
                         entities: vec![],
                         edges: vec![],
                         events,
+                        sessions: vec![],
                     }
                 })
             }
@@ -151,6 +153,7 @@ impl Engine {
                         entities: vec![],
                         edges: vec![],
                         events,
+                        sessions: vec![],
                     }
                 })
             }
@@ -168,7 +171,23 @@ impl Engine {
                     entities,
                     edges: vec![],
                     events: vec![],
+                    sessions: vec![],
                 })
+            }
+            QueryKind::Sessions { from, to, limit } => {
+                let repo = self.repo.lock().unwrap();
+                repo.sessions_in_range(from, to, limit).map(|sessions| {
+                    let infos = sessions.into_iter().map(session_to_info).collect();
+                    QueryResponse {
+                        entities: vec![],
+                        edges: vec![],
+                        events: vec![],
+                        sessions: infos,
+                    }
+                })
+            }
+            QueryKind::DaySummary { date } => {
+                self.handle_day_summary(&date)
             }
         };
         match result {
@@ -202,6 +221,48 @@ impl Engine {
         let collectors: Vec<CollectorInfo> =
             self.collectors.lock().unwrap().values().cloned().collect();
         Message::new(request_id, MessageKind::CollectorList { collectors })
+    }
+
+    fn handle_day_summary(&self, date: &str) -> rusqlite::Result<QueryResponse> {
+        // Parse date string "YYYY-MM-DD" into day start/end timestamps
+        let naive = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .unwrap_or_else(|_| chrono::Utc::now().date_naive());
+        let day_start = naive
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
+        let day_end = naive
+            .succ_opt()
+            .unwrap_or(naive)
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
+
+        let repo = self.repo.lock().unwrap();
+        let sessions = repo.sessions_for_day(day_start, day_end)?;
+        let infos = sessions.into_iter().map(session_to_info).collect();
+        Ok(QueryResponse {
+            entities: vec![],
+            edges: vec![],
+            events: vec![],
+            sessions: infos,
+        })
+    }
+}
+
+fn session_to_info(s: crate::storage::repo::Session) -> SessionInfo {
+    SessionInfo {
+        id: s.id,
+        app_name: s.app_name,
+        window_titles: s.window_titles,
+        project: s.project,
+        category: s.category,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        duration_secs: s.duration_secs,
+        event_count: s.event_count,
     }
 }
 

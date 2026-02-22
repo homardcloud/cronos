@@ -51,6 +51,8 @@ pub enum QueryKind {
     Timeline { from: Timestamp, to: Timestamp },
     Related { entity_id: EntityId, depth: u8 },
     Recent { limit: u32 },
+    Sessions { from: Timestamp, to: Timestamp, limit: u32 },
+    DaySummary { date: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +60,22 @@ pub struct QueryResponse {
     pub entities: Vec<Entity>,
     pub edges: Vec<Edge>,
     pub events: Vec<Event>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<SessionInfo>,
+}
+
+/// A session as returned across the protocol boundary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInfo {
+    pub id: String,
+    pub app_name: String,
+    pub window_titles: Vec<String>,
+    pub project: Option<String>,
+    pub category: String,
+    pub start_time: Timestamp,
+    pub end_time: Timestamp,
+    pub duration_secs: i64,
+    pub event_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
