@@ -189,6 +189,15 @@ impl Engine {
         Message::new(request_id, MessageKind::StatusResult { info })
     }
 
+    /// Run the session aggregator against the repository.
+    pub fn run_aggregator(
+        &self,
+        aggregator: &crate::aggregator::SessionAggregator,
+    ) -> rusqlite::Result<usize> {
+        let repo = self.repo.lock().unwrap();
+        aggregator.aggregate(&repo)
+    }
+
     fn handle_list_collectors(&self, request_id: String) -> Message {
         let collectors: Vec<CollectorInfo> =
             self.collectors.lock().unwrap().values().cloned().collect();
