@@ -3,7 +3,7 @@ use cronos_model::EntityId;
 use cronos_proto::*;
 use std::path::Path;
 
-use super::daemon_client;
+use crate::daemon_client;
 
 /// Return the OpenAI function-calling tool schema for the 5 Cronos tools.
 pub fn tool_definitions() -> Vec<serde_json::Value> {

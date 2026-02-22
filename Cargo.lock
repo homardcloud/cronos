@@ -258,27 +258,59 @@ name = "cronos"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "chrono",
  "clap",
+ "cronos-chat",
  "cronos-common",
  "cronos-core",
  "cronos-model",
  "cronos-proto",
  "futures-util",
- "hex",
- "open",
- "rand",
  "reqwest",
  "rustyline",
  "serde",
  "serde_json",
- "sha2",
  "tokio",
  "toml",
  "tracing",
  "ulid",
+]
+
+[[package]]
+name = "cronos-chat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "cronos-common",
+ "cronos-model",
+ "cronos-proto",
+ "hex",
+ "open",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "ulid",
  "urlencoding",
+]
+
+[[package]]
+name = "cronos-collect-appmon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cronos-common",
+ "cronos-model",
+ "cronos-proto",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "ulid",
 ]
 
 [[package]]

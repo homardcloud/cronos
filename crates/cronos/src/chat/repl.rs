@@ -3,8 +3,8 @@ use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use std::path::PathBuf;
 
-use super::openai::{self, Auth, ChatMessage};
-use super::tools;
+use cronos_chat::openai::{self, Auth, ChatMessage};
+use cronos_chat::tools;
 
 pub async fn run_repl(auth: Auth, model: String, socket_path: PathBuf) -> Result<()> {
     let client = reqwest::Client::new();

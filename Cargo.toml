@@ -5,6 +5,7 @@ members = [
     "crates/cronos-common",
     "crates/cronos-proto",
     "crates/cronos-core",
+    "crates/cronos-chat",
     "crates/cronos",
     "crates/collectors/cronos-collect-fs",
     "crates/collectors/cronos-collect-appmon",

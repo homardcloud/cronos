@@ -1,11 +1,6 @@
-mod autostart;
-mod credentials;
-mod daemon_client;
-mod oauth;
-mod openai;
 mod repl;
-mod tools;
 
+use cronos_chat::{autostart, credentials, oauth, openai};
 use cronos_common::{CronosConfig, CronosPaths};
 use std::path::PathBuf;
 
