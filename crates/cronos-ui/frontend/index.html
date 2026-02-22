@@ -1,2 +1,67 @@
 <!DOCTYPE html>
-<html><body><h1>Cronos</h1><p>Loading...</p></body></html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cronos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>Cronos</h1>
+      <span id="tracking-indicator" class="indicator active" title="Tracking active"></span>
+    </div>
+    <div class="header-right">
+      <button id="btn-auth" class="btn-ghost" title="Login">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/>
+          <path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="tracking-controls">
+    <div class="controls-left">
+      <span id="tracking-label">Tracking</span>
+      <span id="tracking-status" class="status-badge active">Active</span>
+    </div>
+    <div class="controls-right">
+      <button id="btn-pause" class="btn-control" title="Pause tracking">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="3" y="2" width="3" height="10" rx="0.5" fill="currentColor"/>
+          <rect x="8" y="2" width="3" height="10" rx="0.5" fill="currentColor"/>
+        </svg>
+      </button>
+      <button id="btn-kill" class="btn-control btn-danger" title="Kill collectors">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="2" y="6" width="10" height="2" rx="0.5" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <main id="chat-messages">
+    <div class="welcome-msg">
+      <p>Ask me about your activity, sessions, or what you've been working on.</p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="input-row">
+      <textarea id="chat-input" placeholder="What did I work on today?" rows="1"></textarea>
+      <button id="btn-send" title="Send" disabled>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 8h12M10 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
