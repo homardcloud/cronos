@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-const CURRENT_VERSION: i32 = 1;
+const CURRENT_VERSION: i32 = 2;
 
 /// Run all migrations on the given database connection.
 ///
@@ -27,9 +27,14 @@ pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
         )
         .ok();
 
-    if version.unwrap_or(0) >= CURRENT_VERSION {
+    let current = version.unwrap_or(0);
+
+    if current >= CURRENT_VERSION {
         return Ok(());
     }
+
+    // === V1 migrations ===
+    if current < 1 {
 
     // === entities table ===
     conn.execute_batch(
@@ -104,6 +109,30 @@ pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
             "CREATE VIRTUAL TABLE entities_fts USING fts5(name, attributes, content='entities', content_rowid='rowid');",
         )?;
     }
+
+    } // end v1
+
+    // === V2 migrations: sessions table ===
+    if current < 2 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sessions (
+                id            TEXT PRIMARY KEY NOT NULL,
+                app_name      TEXT NOT NULL,
+                window_titles TEXT NOT NULL DEFAULT '[]',
+                project       TEXT,
+                category      TEXT NOT NULL DEFAULT 'other',
+                start_time    INTEGER NOT NULL,
+                end_time      INTEGER NOT NULL,
+                duration_secs INTEGER NOT NULL,
+                event_count   INTEGER NOT NULL DEFAULT 0,
+                metadata      TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_sessions_time     ON sessions(start_time, end_time);
+            CREATE INDEX IF NOT EXISTS idx_sessions_app      ON sessions(app_name);
+            CREATE INDEX IF NOT EXISTS idx_sessions_category ON sessions(category);",
+        )?;
+    } // end v2
 
     // Record schema version
     if version.is_none() {

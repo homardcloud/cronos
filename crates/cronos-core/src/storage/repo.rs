@@ -3,6 +3,7 @@ use cronos_model::{
     EventKind, Relation, Timestamp,
 };
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 
 use super::migrations::run_migrations;
 
@@ -413,6 +414,114 @@ impl Repository {
         }
         Ok(entities)
     }
+
+    // ─── Session operations ──────────────────────────────────────────
+
+    /// Insert a session.
+    pub fn insert_session(&self, session: &Session) -> rusqlite::Result<()> {
+        let window_titles_str = serde_json::to_string(&session.window_titles).unwrap();
+        let metadata_str = serde_json::to_string(&session.metadata).unwrap();
+
+        self.conn.execute(
+            "INSERT INTO sessions (id, app_name, window_titles, project, category, start_time, end_time, duration_secs, event_count, metadata)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                session.id,
+                session.app_name,
+                window_titles_str,
+                session.project,
+                session.category,
+                session.start_time,
+                session.end_time,
+                session.duration_secs,
+                session.event_count,
+                metadata_str,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Return sessions within the given timestamp range, ordered by start_time ascending.
+    pub fn sessions_in_range(
+        &self,
+        start: Timestamp,
+        end: Timestamp,
+        limit: u32,
+    ) -> rusqlite::Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, app_name, window_titles, project, category, start_time, end_time, duration_secs, event_count, metadata
+             FROM sessions
+             WHERE start_time >= ?1 AND start_time <= ?2
+             ORDER BY start_time ASC
+             LIMIT ?3",
+        )?;
+
+        let rows = stmt.query_map(params![start, end, limit], |row| {
+            Ok(SessionRow {
+                id: row.get(0)?,
+                app_name: row.get(1)?,
+                window_titles: row.get(2)?,
+                project: row.get(3)?,
+                category: row.get(4)?,
+                start_time: row.get(5)?,
+                end_time: row.get(6)?,
+                duration_secs: row.get(7)?,
+                event_count: row.get(8)?,
+                metadata: row.get(9)?,
+            })
+        })?;
+
+        let mut sessions = Vec::new();
+        for r in rows {
+            sessions.push(session_from_row(r?));
+        }
+        Ok(sessions)
+    }
+
+    /// Return sessions for a given day (start_time within the day bounds).
+    pub fn sessions_for_day(
+        &self,
+        day_start: Timestamp,
+        day_end: Timestamp,
+    ) -> rusqlite::Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, app_name, window_titles, project, category, start_time, end_time, duration_secs, event_count, metadata
+             FROM sessions
+             WHERE start_time >= ?1 AND start_time < ?2
+             ORDER BY start_time ASC",
+        )?;
+
+        let rows = stmt.query_map(params![day_start, day_end], |row| {
+            Ok(SessionRow {
+                id: row.get(0)?,
+                app_name: row.get(1)?,
+                window_titles: row.get(2)?,
+                project: row.get(3)?,
+                category: row.get(4)?,
+                start_time: row.get(5)?,
+                end_time: row.get(6)?,
+                duration_secs: row.get(7)?,
+                event_count: row.get(8)?,
+                metadata: row.get(9)?,
+            })
+        })?;
+
+        let mut sessions = Vec::new();
+        for r in rows {
+            sessions.push(session_from_row(r?));
+        }
+        Ok(sessions)
+    }
+
+    /// Return the end_time of the most recent session, used as watermark by the aggregator.
+    pub fn last_session_end_time(&self) -> rusqlite::Result<Option<Timestamp>> {
+        self.conn
+            .query_row(
+                "SELECT MAX(end_time) FROM sessions",
+                [],
+                |row| row.get(0),
+            )
+    }
 }
 
 // ─── Stored event (flattened, with resolved subject_id) ─────────────
@@ -426,6 +535,23 @@ pub struct StoredEvent {
     pub source: CollectorSource,
     pub kind: EventKind,
     pub subject_id: EntityId,
+    pub metadata: Attributes,
+}
+
+// ─── Session (aggregated activity) ───────────────────────────────────
+
+/// An aggregated activity session grouping consecutive app usage events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub app_name: String,
+    pub window_titles: Vec<String>,
+    pub project: Option<String>,
+    pub category: String,
+    pub start_time: Timestamp,
+    pub end_time: Timestamp,
+    pub duration_secs: i64,
+    pub event_count: i64,
     pub metadata: Attributes,
 }
 
@@ -457,6 +583,34 @@ struct EdgeRow {
     strength: f64,
     created_at: i64,
     last_reinforced: i64,
+}
+
+struct SessionRow {
+    id: String,
+    app_name: String,
+    window_titles: String,
+    project: Option<String>,
+    category: String,
+    start_time: i64,
+    end_time: i64,
+    duration_secs: i64,
+    event_count: i64,
+    metadata: String,
+}
+
+fn session_from_row(r: SessionRow) -> Session {
+    Session {
+        id: r.id,
+        app_name: r.app_name,
+        window_titles: serde_json::from_str(&r.window_titles).unwrap_or_default(),
+        project: r.project,
+        category: r.category,
+        start_time: r.start_time,
+        end_time: r.end_time,
+        duration_secs: r.duration_secs,
+        event_count: r.event_count,
+        metadata: serde_json::from_str(&r.metadata).unwrap_or_default(),
+    }
 }
 
 fn parse_ulid(s: &str) -> ulid::Ulid {
@@ -674,5 +828,73 @@ mod tests {
         // all_entities
         let all = repo.all_entities().unwrap();
         assert_eq!(all.len(), 2);
+    }
+
+    fn make_session(app: &str, category: &str, start: Timestamp, end: Timestamp) -> Session {
+        Session {
+            id: ulid::Ulid::new().to_string(),
+            app_name: app.to_string(),
+            window_titles: vec!["window1".to_string()],
+            project: None,
+            category: category.to_string(),
+            start_time: start,
+            end_time: end,
+            duration_secs: (end - start) / 1000,
+            event_count: 5,
+            metadata: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn insert_and_query_session() {
+        let repo = Repository::open_in_memory().unwrap();
+        let session = make_session("VS Code", "coding", 1000, 5000);
+
+        repo.insert_session(&session).unwrap();
+
+        let results = repo.sessions_in_range(0, 10000, 50).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].app_name, "VS Code");
+        assert_eq!(results[0].category, "coding");
+        assert_eq!(results[0].window_titles, vec!["window1"]);
+    }
+
+    #[test]
+    fn sessions_for_day_filters_correctly() {
+        let repo = Repository::open_in_memory().unwrap();
+
+        let s1 = make_session("VS Code", "coding", 1000, 5000);
+        let s2 = make_session("Discord", "communication", 6000, 8000);
+        let s3 = make_session("Arc", "browsing", 20000, 25000);
+
+        repo.insert_session(&s1).unwrap();
+        repo.insert_session(&s2).unwrap();
+        repo.insert_session(&s3).unwrap();
+
+        // Query day range that includes s1 and s2 but not s3
+        let results = repo.sessions_for_day(0, 10000).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Query day range that includes only s3
+        let results = repo.sessions_for_day(15000, 30000).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].app_name, "Arc");
+    }
+
+    #[test]
+    fn last_session_end_time_works() {
+        let repo = Repository::open_in_memory().unwrap();
+
+        // No sessions yet
+        let last = repo.last_session_end_time().unwrap();
+        assert!(last.is_none());
+
+        let s1 = make_session("VS Code", "coding", 1000, 5000);
+        let s2 = make_session("Discord", "communication", 6000, 9000);
+        repo.insert_session(&s1).unwrap();
+        repo.insert_session(&s2).unwrap();
+
+        let last = repo.last_session_end_time().unwrap();
+        assert_eq!(last, Some(9000));
     }
 }
